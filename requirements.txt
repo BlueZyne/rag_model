@@ -5,3 +5,4 @@ streamlit
 pypdf
 faiss-cpu
 python-dotenv
+langchain-community
