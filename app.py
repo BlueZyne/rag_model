@@ -165,9 +165,13 @@ if user_question := st.chat_input("Type your question here:"):
     if "vector_store" in st.session_state and st.session_state.vector_store is not None:
         try:
             with st.spinner("Thinking..."):
-                vector_store = st.session_state.vector_store
-                docs = vector_store.similarity_search(user_question, k=4)
-                context = "\n".join([doc.page_content for doc in docs])
+                general_questions = ["hi", "hello", "thanks", "thank you"]
+                if user_question.lower() in general_questions:
+                    context = ""
+                else:
+                    vector_store = st.session_state.vector_store
+                    docs = vector_store.similarity_search(user_question, k=4)
+                    context = "\n".join([doc.page_content for doc in docs])
                 
                 llm = ChatGoogleGenerativeAI(
                     model="gemini-1.5-flash-latest",
