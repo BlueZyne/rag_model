@@ -23,6 +23,12 @@ def load_api_key():
         if not api_key:
             # Try direct environment variable if .env fails
             api_key = os.environ.get("GOOGLE_API_KEY")
+        
+        if api_key:
+            print("API key loaded successfully.")
+        else:
+            print("API key not found.")
+            
         return api_key
     except Exception as e:
         st.error(f"Error loading .env file: {str(e)}")
@@ -138,20 +144,20 @@ if process_button and pdf_file is not None:
         st.success("✅ Document processed! You can now ask questions.")
 
 # --- 7. Handle User Questions ---
- st.subheader("Ask a question about your document")
+st.subheader("Ask a question about your document")
  
  # Initialize session state for vector store and chat history
- if 'vector_store' not in st.session_state:
-     st.session_state.vector_store = None
- if 'chat_history' not in st.session_state:
-     st.session_state.chat_history = []
+if 'vector_store' not in st.session_state:
+    st.session_state.vector_store = None
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
  
  # Display chat history
- for author, message in st.session_state.chat_history:
-     with st.chat_message(author):
-         st.markdown(message)
+for author, message in st.session_state.chat_history:
+    with st.chat_message(author):
+        st.markdown(message)
  
- if user_question := st.chat_input("Type your question here:"):
+if user_question := st.chat_input("Type your question here:"):
     with st.chat_message("user"):
         st.markdown(user_question)
     st.session_state.chat_history.append(("user", user_question))
@@ -164,7 +170,7 @@ if process_button and pdf_file is not None:
                 context = "\n".join([doc.page_content for doc in docs])
                 
                 llm = ChatGoogleGenerativeAI(
-                    model="gemini-pro",
+                    model="gemini-1.5-flash-latest",
                     temperature=0.7,
                     top_p=0.85,
                     top_k=40,
@@ -173,15 +179,16 @@ if process_button and pdf_file is not None:
                 )
                 
                 prompt_template = """
-                You are a helpful AI assistant. Using the provided context and chat history, answer the user's question accurately and concisely.
-                If the answer cannot be found in the context, simply state "I cannot find the answer in the provided context."
-                
+                You are a helpful and friendly AI assistant. Your goal is to answer the user's question based on the provided context.
+                If the user asks a question that is not related to the context, you can answer it in a friendly and conversational way.
+                If the answer cannot be found in the context, you can say that you are an AI assistant and your primary purpose is to answer questions about the provided document.
+
                 Context: {context}
                 Chat History: {chat_history}
-                
+
                 Question: {question}
-                
-                Answer: Let me help you with that.
+
+                Answer:
                 """
                 prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
                 
