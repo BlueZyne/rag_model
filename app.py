@@ -7,8 +7,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate
-from langchain.schema import StrOutputParser
+from langchain_core.prompts import PromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from dotenv import load_dotenv
 import io
 from langchain_community.embeddings import HuggingFaceEmbeddings
