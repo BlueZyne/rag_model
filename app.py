@@ -39,7 +39,7 @@ else:
 
 # --- 2. Set up the Streamlit Page ---
 st.set_page_config(page_title="Chat with PDF", layout="wide")
-st.header("Chat with your PDF using Gemini 🤖")
+st.header("Chat with your PDF using Scholar 🤖")
 
 # --- 3. Add the File Uploader to the sidebar ---
 with st.sidebar:
@@ -104,7 +104,7 @@ def create_vector_store(text_chunks: List[str]):
             cache_folder="./models"
         )
         st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-        st.success("Vector store created successfully!")
+        pass
         
     except Exception as e:
         st.error(f"Error creating vector store: {str(e)}")
@@ -118,7 +118,6 @@ if process_button and pdf_file is not None:
         
         # Create and save vector store
         create_vector_store(raw_text_chunks)
-        
         st.success("✅ Document processed! You can now ask questions.")
 
 # --- 7. Handle User Questions ---
@@ -177,10 +176,10 @@ if user_question := st.chat_input("Type your question here:"):
                 # Step 2: Choose the model based on complexity
                 if complexity == "complex":
                     model_name = "gemini-2.5-pro"
-                    st.info("Using gemini-pro for a complex question.")
+                    pass
                 else:
                     model_name = "models/gemini-2.5-flash"
-                    st.info("Using models/gemini-2.5-flash for a simple question.")
+                    pass
 
                 general_questions = ["hi", "hello", "thanks", "thank you"]
                 if user_question.lower() in general_questions:
