@@ -138,59 +138,74 @@ if process_button and pdf_file is not None:
         st.success("✅ Document processed! You can now ask questions.")
 
 # --- 7. Handle User Questions ---
-st.subheader("Ask a question about your document")
-user_question = st.text_input("Type your question here:")
+ st.subheader("Ask a question about your document")
+ 
+ # Initialize session state for vector store and chat history
+ if 'vector_store' not in st.session_state:
+     st.session_state.vector_store = None
+ if 'chat_history' not in st.session_state:
+     st.session_state.chat_history = []
+ 
+ # Display chat history
+ for author, message in st.session_state.chat_history:
+     with st.chat_message(author):
+         st.markdown(message)
+ 
+ user_question = st.chat_input("Type your question here:")
+ 
+ if user_question and "vector_store" in st.session_state:
+     try:
+         with st.spinner("Searching for answers..."):
+             vector_store = st.session_state.vector_store
+             if vector_store is None:
+                 st.error("Vector store is not properly initialized")
+                 st.stop()
+                 
+             docs = vector_store.similarity_search(user_question, k=4)
+             context = "\n".join([doc.page_content for doc in docs])
+             
+             llm = ChatGoogleGenerativeAI(
+                 model="gemini-pro",
+                 temperature=0.7,
+                 top_p=0.85,
+                 top_k=40,
+                 max_output_tokens=2048,
+                 google_api_key=api_key
+             )
+             
+             # Updated prompt template
+             prompt_template = """
+             You are a helpful AI assistant. Using the provided context and chat history, answer the user's question accurately and concisely.
+             If the answer cannot be found in the context, simply state "I cannot find the answer in the provided context."
+             
+             Context: {context}
+             Chat History: {chat_history}
+             
+             Question: {question}
+             
+             Answer: Let me help you with that.
+             """
+             prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
+             
+             # Create the modern LCEL chain
+             chain = prompt | llm | StrOutputParser()
+ 
+             # Format chat history for the prompt
+             formatted_chat_history = "\n".join([f"{author}: {message}" for author, message in st.session_state.chat_history])
 
-# Initialize session state for vector store and chat history
-if 'vector_store' not in st.session_state:
-    st.session_state.vector_store = None
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
+             # Invoke the chain
+             response = chain.invoke({"context": context, "chat_history": formatted_chat_history, "question": user_question})
+             
+             # Display the answer
+             with st.chat_message("assistant"):
+                 st.markdown(response)
+             
+             # Append to chat history
+             st.session_state.chat_history.append(("user", user_question))
+             st.session_state.chat_history.append(("assistant", response))
 
-if user_question and "vector_store" in st.session_state:
-    try:
-        with st.spinner("Searching for answers..."):
-            vector_store = st.session_state.vector_store
-            if vector_store is None:
-                st.error("Vector store is not properly initialized")
-                st.stop()
-                
-            docs = vector_store.similarity_search(user_question, k=4)
-            context = "\n".join([doc.page_content for doc in docs])
-            
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-pro",
-                temperature=0.7,
-                top_p=0.85,
-                top_k=40,
-                max_output_tokens=2048,
-                google_api_key=api_key
-            )
-            
-            # Updated prompt template
-            prompt_template = """
-            You are a helpful AI assistant. Using the provided context, answer the user's question accurately and concisely.
-            If the answer cannot be found in the context, simply state "I cannot find the answer in the provided context."
-            
-            Context: {context}
-            
-            Question: {question}
-            
-            Answer: Let me help you with that.
-            """
-            prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
-            
-            # Create the modern LCEL chain
-            chain = prompt | llm | StrOutputParser()
-
-            # Invoke the chain
-            response = chain.invoke({"context": context, "question": user_question})
-            
-            # Display the answer
-            st.write("### Answer")
-            st.write(response)
-    except Exception as e:
-        st.error("⚠️ Error generating response")
-        st.error(f"Details: {str(e)}")
-        if "quota" in str(e).lower():
-            st.warning("This might be an API quota issue. Please check your API limits.")
+     except Exception as e:
+         st.error("⚠️ Error generating response")
+         st.error(f"Details: {str(e)}")
+         if "quota" in str(e).lower():
+             st.warning("This might be an API quota issue. Please check your API limits.")
