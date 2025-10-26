@@ -41,11 +41,37 @@ else:
 st.set_page_config(page_title="Chat with PDF", layout="wide")
 st.header("Chat with your PDF using Scholar 🤖")
 
+# Initialize session states
+if 'documents' not in st.session_state:
+    st.session_state.documents = {}  # Store documents with their names
+if 'vector_store' not in st.session_state:
+    st.session_state.vector_store = None
+if 'chat_history' not in st.session_state:
+    st.session_state.chat_history = []
+
 # --- 3. Add the File Uploader to the sidebar ---
 with st.sidebar:
-    st.subheader("Your Document")
-    pdf_file = st.file_uploader("Upload your PDF document and click 'Process'", type="pdf")
-    process_button = st.button("Process")
+    st.subheader("Your Documents")
+    pdf_files = st.file_uploader("Upload PDF documents and click 'Process'", type="pdf", accept_multiple_files=True)
+    
+    # Show uploaded documents
+    if pdf_files:
+        st.write("Uploaded documents:")
+        for pdf in pdf_files:
+            st.write(f"📄 {pdf.name}")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        process_button = st.button("Process All")
+    with col2:
+        clear_button = st.button("Clear All")
+
+# Handle clear functionality
+if clear_button:
+    st.session_state.documents = {}
+    st.session_state.vector_store = None
+    st.session_state.chat_history = []
+    st.rerun()
 
 # --- 4. Function to Process the PDF ---
 def get_pdf_text_and_chunks(pdf_file) -> List[str]:
@@ -92,9 +118,9 @@ def get_pdf_text_and_chunks(pdf_file) -> List[str]:
         return []
 
 # --- 5. Function to Create the Vector Store ---
-def create_vector_store(text_chunks: List[str]):
-    """Creates a FAISS vector store from text chunks and saves it to session state."""
-    if not text_chunks:
+def create_vector_store(text_chunks_dict: dict):
+    """Creates a FAISS vector store from multiple documents' text chunks."""
+    if not text_chunks_dict:
         st.error("No text chunks to process")
         return
 
@@ -103,22 +129,41 @@ def create_vector_store(text_chunks: List[str]):
             model_name="all-MiniLM-L6-v2",
             cache_folder="./models"
         )
-        st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-        pass
+        
+        # Process all documents and create a single vector store
+        all_chunks = []
+        all_metadatas = []
+        
+        for doc_name, chunks in text_chunks_dict.items():
+            for chunk in chunks:
+                all_chunks.append(chunk)
+                all_metadatas.append({"source": doc_name})
+        
+        vector_store = FAISS.from_texts(
+            texts=all_chunks,
+            embedding=embeddings,
+            metadatas=all_metadatas
+        )
+        st.session_state.vector_store = vector_store
+        st.success(f"✅ Successfully processed {len(text_chunks_dict)} documents!")
         
     except Exception as e:
         st.error(f"Error creating vector store: {str(e)}")
         return None
 
 # --- 6. The Main Logic ---
-if process_button and pdf_file is not None:
-    with st.spinner("Processing your document..."):
-        # Get text chunks
-        raw_text_chunks = get_pdf_text_and_chunks(pdf_file)
+if process_button and pdf_files:
+    with st.spinner("Processing documents..."):
+        text_chunks_dict = {}
+        for pdf in pdf_files:
+            chunks = get_pdf_text_and_chunks(pdf)
+            if chunks:  # Only add if chunks were successfully created
+                text_chunks_dict[pdf.name] = chunks
         
-        # Create and save vector store
-        create_vector_store(raw_text_chunks)
-        st.success("✅ Document processed! You can now ask questions.")
+        if text_chunks_dict:
+            create_vector_store(text_chunks_dict)
+        else:
+            st.error("No valid text could be extracted from any of the documents.")
 
 # --- 7. Handle User Questions ---
 def get_question_complexity(question: str, api_key: str) -> str:
@@ -184,10 +229,12 @@ if user_question := st.chat_input("Type your question here:"):
                 general_questions = ["hi", "hello", "thanks", "thank you"]
                 if user_question.lower() in general_questions:
                     context = ""
+                    sources = ""
                 else:
                     vector_store = st.session_state.vector_store
                     docs = vector_store.similarity_search(user_question, k=4)
                     context = "\n".join([doc.page_content for doc in docs])
+                    sources = ", ".join(set([doc.metadata["source"] for doc in docs]))
                 
                 llm = ChatGoogleGenerativeAI(
                     model=model_name,
@@ -201,22 +248,28 @@ if user_question := st.chat_input("Type your question here:"):
                 prompt_template = """
                 You are a helpful and friendly AI assistant. Your goal is to answer the user's question based on the provided context.
                 If the user asks a question that is not related to the context, you can answer it in a friendly and conversational way.
-                If the answer cannot be found in the context, you can say that you are an AI assistant and your primary purpose is to answer questions about the provided document.
+                If the answer cannot be found in the context, you can say that you are an AI assistant and your primary purpose is to answer questions about the provided documents.
 
                 Context: {context}
+                Sources: {sources}
                 Chat History: {chat_history}
 
                 Question: {question}
 
                 Answer:
                 """
-                prompt = PromptTemplate(template=prompt_template, input_variables=["context", "chat_history", "question"])
+                prompt = PromptTemplate(template=prompt_template, input_variables=["context", "sources", "chat_history", "question"])
                 
                 chain = prompt | llm | StrOutputParser()
 
                 formatted_chat_history = "\n".join([f'{author}: {message}' for author, message in st.session_state.chat_history])
 
-                response = chain.invoke({"context": context, "chat_history": formatted_chat_history, "question": user_question})
+                response = chain.invoke({
+                    "context": context,
+                    "sources": sources,
+                    "chat_history": formatted_chat_history,
+                    "question": user_question
+                })
                 
                 with st.chat_message("assistant"):
                     st.markdown(response)
