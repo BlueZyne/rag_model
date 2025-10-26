@@ -1,5 +1,9 @@
 # Chat with your PDF using Gemini 🤖
 
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://ireadpdf.streamlit.app/)
+
+**[View the live application](https://ireadpdf.streamlit.app/)**
+
 This is a Streamlit application that allows you to chat with your PDF documents using Google's Gemini models. You can upload a PDF, and the application will create a vector store of the document's content. You can then ask questions about the document, and the application will use a Gemini model to generate answers based on the document's content.
 
 ## Features ✨
