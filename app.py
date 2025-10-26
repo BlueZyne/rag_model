@@ -4,7 +4,7 @@ from typing import List
 import google.generativeai as genai
 from pypdf import PdfReader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
@@ -23,12 +23,6 @@ def load_api_key():
         if not api_key:
             # Try direct environment variable if .env fails
             api_key = os.environ.get("GOOGLE_API_KEY")
-        
-        if api_key:
-            print("API key loaded successfully.")
-        else:
-            print("API key not found.")
-            
         return api_key
     except Exception as e:
         st.error(f"Error loading .env file: {str(e)}")
@@ -106,30 +100,15 @@ def create_vector_store(text_chunks: List[str]):
         return
 
     try:
-        # First try Google embeddings
-        try:
-            embeddings = GoogleGenerativeAIEmbeddings(
-                model="models/embedding-001",
-                google_api_key=api_key
-            )
-            st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-        except Exception as e:
-            if "429" in str(e) or "quota" in str(e).lower():
-                st.warning("Google API rate limit reached. Falling back to local embeddings...")
-                # Fallback to HuggingFace embeddings
-                embeddings = HuggingFaceEmbeddings(
-                    model_name="all-MiniLM-L6-v2",
-                    cache_folder="./models"
-                )
-                st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
-            else:
-                raise e
-        
+        embeddings = HuggingFaceEmbeddings(
+            model_name="all-MiniLM-L6-v2",
+            cache_folder="./models"
+        )
+        st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
         st.success("Vector store created successfully!")
         
     except Exception as e:
         st.error(f"Error creating vector store: {str(e)}")
-        st.info("If you're seeing rate limit errors, try again in a few minutes")
         return None
 
 # --- 6. The Main Logic ---
@@ -174,7 +153,7 @@ if user_question := st.chat_input("Type your question here:"):
                     context = "\n".join([doc.page_content for doc in docs])
                 
                 llm = ChatGoogleGenerativeAI(
-                    model="gemini-1.5-flash-latest",
+                    model="models/gemini-2.5-flash",
                     temperature=0.7,
                     top_p=0.85,
                     top_k=40,
