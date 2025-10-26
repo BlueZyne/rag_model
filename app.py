@@ -3,8 +3,7 @@ import os
 from typing import List
 import google.generativeai as genai
 from pypdf import PdfReader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
@@ -123,6 +122,34 @@ if process_button and pdf_file is not None:
         st.success("✅ Document processed! You can now ask questions.")
 
 # --- 7. Handle User Questions ---
+def get_question_complexity(question: str, api_key: str) -> str:
+    """Classifies a question as simple or complex using the flash model."""
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model="models/gemini-2.5-flash",
+            temperature=0.0,
+            google_api_key=api_key
+        )
+        
+        prompt_template = """
+        Classify the following question as "simple" or "complex". 
+        A "simple" question is one that can be answered with a short, factual answer.
+        A "complex" question is one that requires more explanation, reasoning, or a multi-part answer.
+        Your response should be a single word: "simple" or "complex".
+
+        Question: {question}
+
+        Classification:
+        """
+        prompt = PromptTemplate(template=prompt_template, input_variables=["question"])
+        
+        chain = prompt | llm | StrOutputParser()
+        
+        return chain.invoke({"question": question}).strip().lower()
+    except Exception as e:
+        st.warning(f"Could not classify question complexity: {str(e)}")
+        return "simple"  # Default to simple if classification fails
+
 st.subheader("Ask a question about your document")
  
  # Initialize session state for vector store and chat history
@@ -144,6 +171,17 @@ if user_question := st.chat_input("Type your question here:"):
     if "vector_store" in st.session_state and st.session_state.vector_store is not None:
         try:
             with st.spinner("Thinking..."):
+                # Step 1: Classify the question
+                complexity = get_question_complexity(user_question, api_key)
+
+                # Step 2: Choose the model based on complexity
+                if complexity == "complex":
+                    model_name = "gemini-2.5-pro"
+                    st.info("Using gemini-pro for a complex question.")
+                else:
+                    model_name = "models/gemini-2.5-flash"
+                    st.info("Using models/gemini-2.5-flash for a simple question.")
+
                 general_questions = ["hi", "hello", "thanks", "thank you"]
                 if user_question.lower() in general_questions:
                     context = ""
@@ -153,7 +191,7 @@ if user_question := st.chat_input("Type your question here:"):
                     context = "\n".join([doc.page_content for doc in docs])
                 
                 llm = ChatGoogleGenerativeAI(
-                    model="models/gemini-2.5-flash",
+                    model=model_name,
                     temperature=0.7,
                     top_p=0.85,
                     top_k=40,
