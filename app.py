@@ -106,6 +106,7 @@ def create_vector_store(text_chunks: List[str]):
                 model="models/embedding-001",
                 google_api_key=api_key
             )
+            st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
         except Exception as e:
             if "429" in str(e) or "quota" in str(e).lower():
                 st.warning("Google API rate limit reached. Falling back to local embeddings...")
@@ -114,38 +115,10 @@ def create_vector_store(text_chunks: List[str]):
                     model_name="all-MiniLM-L6-v2",
                     cache_folder="./models"
                 )
+                st.session_state.vector_store = FAISS.from_texts(text_chunks, embedding=embeddings)
             else:
                 raise e
-
-        # Add progress bar for chunks processing
-        chunks_length = len(text_chunks)
-        progress_bar = st.progress(0)
         
-        # Process in smaller batches
-        batch_size = 5
-        all_embeddings = []
-        
-        for i in range(0, chunks_length, batch_size):
-            batch = text_chunks[i:i + batch_size]
-            vector_store = FAISS.from_texts(
-                texts=batch,
-                embedding=embeddings
-            )
-            
-            if i == 0:
-                final_store = vector_store
-            else:
-                final_store.merge_from(vector_store)
-                
-            # Update progress
-            progress = min((i + batch_size) / chunks_length, 1.0)
-            progress_bar.progress(progress)
-            
-            # Add small delay to avoid rate limits
-            time.sleep(0.5)
-        
-        st.session_state.vector_store = final_store
-        progress_bar.empty()
         st.success("Vector store created successfully!")
         
     except Exception as e:
