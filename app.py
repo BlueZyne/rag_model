@@ -50,27 +50,46 @@ if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 
 # --- 3. Add the File Uploader to the sidebar ---
+def process_uploaded_files(uploaded_files):
+    """Processes uploaded PDF files."""
+    with st.spinner("Processing documents..."):
+        text_chunks_dict = {}
+        for pdf in uploaded_files:
+            chunks = get_pdf_text_and_chunks(pdf)
+            if chunks:
+                text_chunks_dict[pdf.name] = chunks
+        
+        if text_chunks_dict:
+            create_vector_store(text_chunks_dict)
+        else:
+            st.error("No valid text could be extracted from any of the documents.")
+
 with st.sidebar:
     st.subheader("Your Documents")
-    pdf_files = st.file_uploader("Upload PDF documents and click 'Process'", type="pdf", accept_multiple_files=True)
+    pdf_files = st.file_uploader(
+        "Upload PDF documents and start chatting", 
+        type="pdf", 
+        accept_multiple_files=True,
+        key='pdf_files',
+        on_change=lambda: process_uploaded_files(st.session_state.pdf_files)
+    )
     
+
+
     # Show uploaded documents
-    if pdf_files:
+    if 'pdf_files' in st.session_state and st.session_state.pdf_files:
         st.write("Uploaded documents:")
-        for pdf in pdf_files:
+        for pdf in st.session_state.pdf_files:
             st.write(f"📄 {pdf.name}")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        process_button = st.button("Process All")
-    with col2:
-        clear_button = st.button("Clear All")
+    clear_button = st.button("Clear All")
 
 # Handle clear functionality
 if clear_button:
     st.session_state.documents = {}
     st.session_state.vector_store = None
     st.session_state.chat_history = []
+    st.session_state.pdf_files = []
     st.rerun()
 
 # --- 4. Function to Process the PDF ---
@@ -151,19 +170,7 @@ def create_vector_store(text_chunks_dict: dict):
         st.error(f"Error creating vector store: {str(e)}")
         return None
 
-# --- 6. The Main Logic ---
-if process_button and pdf_files:
-    with st.spinner("Processing documents..."):
-        text_chunks_dict = {}
-        for pdf in pdf_files:
-            chunks = get_pdf_text_and_chunks(pdf)
-            if chunks:  # Only add if chunks were successfully created
-                text_chunks_dict[pdf.name] = chunks
-        
-        if text_chunks_dict:
-            create_vector_store(text_chunks_dict)
-        else:
-            st.error("No valid text could be extracted from any of the documents.")
+
 
 # --- 7. Handle User Questions ---
 def get_question_complexity(question: str, api_key: str) -> str:
