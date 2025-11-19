@@ -16,7 +16,7 @@ This is a production-ready Streamlit application that allows you to chat with yo
 
 ### Production Features
 *   **📊 Document Statistics:** View page count, text chunks, and character count for each uploaded document.
-*   **💾 Export Chat History:** Download your conversations as markdown files for future reference.
+*   **💾 Export Chat History:** Download your conversations as markdown files with session metadata, token usage, and feedback.
 *   **📚 Source Citations:** See which documents were used to answer your questions.
 *   **⚡ File Validation:** Automatic file size validation (max 50MB) to prevent crashes.
 *   **🔍 Smart Model Routing:** Automatically uses Flash model for simple questions and Pro model for complex queries.
@@ -24,10 +24,20 @@ This is a production-ready Streamlit application that allows you to chat with yo
 *   **🎨 Enhanced UI:** Beautiful gradient design with statistics cards and better user experience.
 *   **⚠️ Better Error Handling:** Detailed, helpful error messages with troubleshooting suggestions.
 
+### New Advanced Features
+*   **🌡️ Temperature Control:** Adjust AI creativity and randomness with an easy-to-use slider (0.0-1.0).
+*   **📊 Token Usage Tracking:** Real-time tracking of API token usage with cost estimation.
+*   **👍👎 Response Feedback:** Rate AI responses with thumbs up/down to track quality.
+*   **📝 Conversation Summary:** Generate AI-powered summaries of your chat sessions.
+*   **🔍 Document Filtering:** Select which documents to include in your searches (multi-document mode).
+*   **⚙️ Configurable Settings:** Centralized configuration file for easy customization.
+*   **🔒 Enhanced Security:** Comprehensive security policies and best practices.
+
 ### Technical Features
 *   **Local Embeddings:** Uses Hugging Face `all-MiniLM-L6-v2` model for efficient vector embeddings.
 *   **FAISS Vector Store:** Fast similarity search for retrieving relevant document chunks.
 *   **Robust Text Processing:** Handles encoding errors and extracts text from complex PDFs.
+*   **Feature Flags:** Enable/disable features easily via configuration.
 
 ## Architecture 🏗️
 
@@ -89,14 +99,34 @@ This application follows a Retrieval Augmented Generation (RAG) architecture:
     *   Documents are automatically processed when uploaded
     *   View statistics for each document in the sidebar
 
-3.  **Chat with your PDF:**
+3.  **Configure AI Settings (Optional):**
+    *   Adjust the **Temperature** slider (0.0-1.0) to control AI creativity
+        *   Lower (0.0-0.3): More focused and deterministic responses
+        *   Medium (0.4-0.7): Balanced creativity and accuracy
+        *   Higher (0.8-1.0): More creative and varied responses
+
+4.  **Filter Documents (Multi-Document Mode):**
+    *   When multiple PDFs are uploaded, use checkboxes to select which documents to search
+    *   Only selected documents will be used to answer your questions
+
+5.  **Chat with your PDF:**
     *   Once documents are processed, ask questions in the chat input
     *   The AI will automatically choose the best model based on question complexity
     *   View source citations to see which documents were referenced
+    *   Rate responses with 👍 or 👎 to provide feedback
 
-4.  **Export your conversation:**
+6.  **Monitor Usage:**
+    *   View real-time token usage and estimated costs in the sidebar
+    *   Track your API consumption across the session
+
+7.  **Generate Conversation Summary:**
+    *   Click "📝 Generate Summary" to get an AI-powered summary of your chat
+    *   View key topics, questions, and insights from your conversation
+
+8.  **Export your conversation:**
     *   Click "💾 Export Chat" in the sidebar
-    *   Download your chat history as a markdown file
+    *   Download your chat history as a markdown file with metadata
+    *   Includes session ID, token usage, costs, and feedback ratings
 
 ## Troubleshooting 🔧
 

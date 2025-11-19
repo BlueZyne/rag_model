@@ -15,6 +15,56 @@ import time
 import logging
 from datetime import datetime
 import json
+import uuid
+
+# Import configuration
+try:
+    from config import (
+        ModelConfig, DocumentConfig, EmbeddingConfig, 
+        UIConfig, FeatureFlags, LogConfig, APIConfig
+    )
+except ImportError:
+    # Fallback if config.py doesn't exist
+    class ModelConfig:
+        FLASH_MODEL = "models/gemini-2.0-flash-exp"
+        PRO_MODEL = "models/gemini-2.0-flash-thinking-exp-1219"
+        DEFAULT_TEMPERATURE = 0.7
+        MIN_TEMPERATURE = 0.0
+        MAX_TEMPERATURE = 1.0
+        TOP_P = 0.85
+        TOP_K = 40
+        MAX_OUTPUT_TOKENS = 2048
+    
+    class DocumentConfig:
+        MAX_FILE_SIZE_MB = 50
+        MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
+        CHUNK_SIZE = 1000
+        CHUNK_OVERLAP = 200
+        SIMILARITY_SEARCH_K = 4
+    
+    class EmbeddingConfig:
+        MODEL_NAME = "all-MiniLM-L6-v2"
+        CACHE_FOLDER = "./models"
+    
+    class UIConfig:
+        PAGE_TITLE = "Chat with PDF - Scholar AI"
+        PAGE_ICON = "🤖"
+        LAYOUT = "wide"
+        INITIAL_SIDEBAR_STATE = "expanded"
+        MAX_CHAT_HISTORY_DISPLAY = 10
+    
+    class FeatureFlags:
+        ENABLE_FEEDBACK = True
+        ENABLE_TOKEN_TRACKING = True
+        ENABLE_TEMPERATURE_CONTROL = True
+        ENABLE_CONVERSATION_SUMMARY = True
+        ENABLE_DOCUMENT_FILTER = True
+        ENABLE_STREAMING = True
+    
+    class APIConfig:
+        COST_PER_1K_INPUT_TOKENS = 0.00015
+        COST_PER_1K_OUTPUT_TOKENS = 0.0006
+        CHARS_PER_TOKEN = 4
 
 # --- Configure Logging ---
 logging.basicConfig(
@@ -27,14 +77,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Constants ---
-MAX_FILE_SIZE_MB = 50
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-DEFAULT_TEMPERATURE = 0.7
-FLASH_MODEL = "models/gemini-2.0-flash-exp"
-PRO_MODEL = "models/gemini-2.0-flash-thinking-exp-1219"
+# --- Constants (from config) ---
+MAX_FILE_SIZE_MB = DocumentConfig.MAX_FILE_SIZE_MB
+MAX_FILE_SIZE_BYTES = DocumentConfig.MAX_FILE_SIZE_BYTES
+CHUNK_SIZE = DocumentConfig.CHUNK_SIZE
+CHUNK_OVERLAP = DocumentConfig.CHUNK_OVERLAP
+DEFAULT_TEMPERATURE = ModelConfig.DEFAULT_TEMPERATURE
+FLASH_MODEL = ModelConfig.FLASH_MODEL
+PRO_MODEL = ModelConfig.PRO_MODEL
 
 # --- 1. Load API Key and Configure ---
 def load_api_key() -> str:
@@ -69,10 +119,10 @@ else:
 
 # --- 2. Set up the Streamlit Page ---
 st.set_page_config(
-    page_title="Chat with PDF - Scholar AI",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_title=UIConfig.PAGE_TITLE,
+    page_icon=UIConfig.PAGE_ICON,
+    layout=UIConfig.LAYOUT,
+    initial_sidebar_state=UIConfig.INITIAL_SIDEBAR_STATE
 )
 
 # Custom CSS for better UI
@@ -100,6 +150,11 @@ st.markdown("""
         margin-top: 0.5rem;
         font-size: 0.85rem;
     }
+    .feedback-buttons {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -116,6 +171,20 @@ if 'document_stats' not in st.session_state:
     st.session_state.document_stats = {}
 if 'processing_time' not in st.session_state:
     st.session_state.processing_time = 0
+
+# New session states for enhanced features
+if 'session_id' not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())[:8]
+if 'feedback' not in st.session_state:
+    st.session_state.feedback = {}  # Store feedback for each response
+if 'total_tokens' not in st.session_state:
+    st.session_state.total_tokens = {'input': 0, 'output': 0}
+if 'temperature' not in st.session_state:
+    st.session_state.temperature = ModelConfig.DEFAULT_TEMPERATURE
+if 'active_documents' not in st.session_state:
+    st.session_state.active_documents = set()  # Documents to include in search
+if 'conversation_summary' not in st.session_state:
+    st.session_state.conversation_summary = None
 
 # --- 3. Helper Functions ---
 def validate_file_size(uploaded_file) -> Tuple[bool, str]:
@@ -136,15 +205,79 @@ def export_chat_history() -> str:
         return "# Chat History\n\nNo messages yet."
     
     markdown = f"# Chat History - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    markdown += f"**Session ID:** {st.session_state.session_id}\n\n"
+    
+    # Add token usage if available
+    if FeatureFlags.ENABLE_TOKEN_TRACKING and st.session_state.total_tokens['input'] > 0:
+        total_input = st.session_state.total_tokens['input']
+        total_output = st.session_state.total_tokens['output']
+        estimated_cost = (total_input / 1000 * APIConfig.COST_PER_1K_INPUT_TOKENS + 
+                         total_output / 1000 * APIConfig.COST_PER_1K_OUTPUT_TOKENS)
+        markdown += f"**Total Tokens:** {total_input + total_output:,} (Input: {total_input:,}, Output: {total_output:,})\n"
+        markdown += f"**Estimated Cost:** ${estimated_cost:.4f}\n\n"
+    
     markdown += "---\n\n"
     
-    for author, message in st.session_state.chat_history:
+    for idx, (author, message) in enumerate(st.session_state.chat_history):
         icon = "👤" if author == "user" else "🤖"
         markdown += f"### {icon} {author.capitalize()}\n\n"
         markdown += f"{message}\n\n"
+        
+        # Add feedback if available
+        if FeatureFlags.ENABLE_FEEDBACK and idx in st.session_state.feedback:
+            feedback = st.session_state.feedback[idx]
+            feedback_icon = "👍" if feedback == "positive" else "👎"
+            markdown += f"*Feedback: {feedback_icon}*\n\n"
+        
         markdown += "---\n\n"
     
     return markdown
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count from text"""
+    return len(text) // APIConfig.CHARS_PER_TOKEN
+
+def generate_conversation_summary(api_key: str) -> str:
+    """Generate a summary of the conversation using Gemini"""
+    if not st.session_state.chat_history:
+        return "No conversation to summarize."
+    
+    try:
+        llm = ChatGoogleGenerativeAI(
+            model=FLASH_MODEL,
+            temperature=0.3,
+            google_api_key=api_key
+        )
+        
+        # Format conversation
+        conversation_text = "\n".join([
+            f"{author}: {message}" 
+            for author, message in st.session_state.chat_history
+        ])
+        
+        prompt_template = """
+        Please provide a concise summary of the following conversation between a user and an AI assistant.
+        Include:
+        1. Main topics discussed
+        2. Key questions asked
+        3. Important insights or answers provided
+        
+        Conversation:
+        {conversation}
+        
+        Summary:
+        """
+        
+        prompt = PromptTemplate(template=prompt_template, input_variables=["conversation"])
+        chain = prompt | llm | StrOutputParser()
+        
+        summary = chain.invoke({"conversation": conversation_text})
+        logger.info("Conversation summary generated")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}")
+        return f"Error generating summary: {str(e)}"
 
 # --- 4. Add the File Uploader to the sidebar ---
 def process_uploaded_files(uploaded_files):
@@ -196,13 +329,33 @@ with st.sidebar:
         help=f"Maximum file size: {MAX_FILE_SIZE_MB}MB per file"
     )
     
-    # Show uploaded documents with statistics
+    # Show uploaded documents with statistics and filtering
     if 'pdf_files' in st.session_state and st.session_state.pdf_files:
         st.write("**Uploaded documents:**")
+        
+        # Initialize active documents if empty
+        if not st.session_state.active_documents:
+            st.session_state.active_documents = set([pdf.name for pdf in st.session_state.pdf_files])
+        
+        # Document filter (if feature enabled)
+        if FeatureFlags.ENABLE_DOCUMENT_FILTER and len(st.session_state.pdf_files) > 1:
+            st.write("**Filter documents for search:**")
+            for pdf in st.session_state.pdf_files:
+                is_active = st.checkbox(
+                    f"📄 {pdf.name[:30]}...", 
+                    value=pdf.name in st.session_state.active_documents,
+                    key=f"doc_filter_{pdf.name}"
+                )
+                if is_active:
+                    st.session_state.active_documents.add(pdf.name)
+                else:
+                    st.session_state.active_documents.discard(pdf.name)
+        else:
+            for pdf in st.session_state.pdf_files:
+                st.write(f"📄 {pdf.name}")
+        
+        # Show statistics
         for pdf in st.session_state.pdf_files:
-            st.write(f"📄 {pdf.name}")
-            
-            # Show statistics if available
             if pdf.name in st.session_state.document_stats:
                 stats = st.session_state.document_stats[pdf.name]
                 with st.expander(f"📊 Statistics for {pdf.name[:20]}..."):
@@ -214,6 +367,54 @@ with st.sidebar:
             st.info(f"⏱️ Processing time: {st.session_state.processing_time:.2f}s")
     
     st.divider()
+    
+    # Temperature Control (if feature enabled)
+    if FeatureFlags.ENABLE_TEMPERATURE_CONTROL:
+        st.subheader("🌡️ AI Settings")
+        st.session_state.temperature = st.slider(
+            "Temperature",
+            min_value=ModelConfig.MIN_TEMPERATURE,
+            max_value=ModelConfig.MAX_TEMPERATURE,
+            value=st.session_state.temperature,
+            step=0.1,
+            help="Higher values make output more creative but less focused. Lower values make it more deterministic."
+        )
+        st.caption(f"Current: {st.session_state.temperature}")
+        st.divider()
+    
+    # Token Usage Tracking (if feature enabled)
+    if FeatureFlags.ENABLE_TOKEN_TRACKING and st.session_state.total_tokens['input'] > 0:
+        st.subheader("📊 Usage Statistics")
+        total_tokens = st.session_state.total_tokens['input'] + st.session_state.total_tokens['output']
+        estimated_cost = (
+            st.session_state.total_tokens['input'] / 1000 * APIConfig.COST_PER_1K_INPUT_TOKENS +
+            st.session_state.total_tokens['output'] / 1000 * APIConfig.COST_PER_1K_OUTPUT_TOKENS
+        )
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Total Tokens", f"{total_tokens:,}")
+        with col2:
+            st.metric("Est. Cost", f"${estimated_cost:.4f}")
+        
+        with st.expander("Token Details"):
+            st.write(f"**Input Tokens:** {st.session_state.total_tokens['input']:,}")
+            st.write(f"**Output Tokens:** {st.session_state.total_tokens['output']:,}")
+        
+        st.divider()
+    
+    # Conversation Summary (if feature enabled)
+    if FeatureFlags.ENABLE_CONVERSATION_SUMMARY and st.session_state.chat_history:
+        if st.button("📝 Generate Summary", use_container_width=True):
+            with st.spinner("Generating conversation summary..."):
+                summary = generate_conversation_summary(api_key)
+                st.session_state.conversation_summary = summary
+        
+        if st.session_state.conversation_summary:
+            with st.expander("💡 Conversation Summary", expanded=False):
+                st.write(st.session_state.conversation_summary)
+        
+        st.divider()
     
     # Export chat history button
     if st.session_state.chat_history:
@@ -232,6 +433,9 @@ with st.sidebar:
             clear_button = st.button("🗑️ Clear All", use_container_width=True)
     else:
         clear_button = st.button("🗑️ Clear All")
+    
+    # Session info
+    st.caption(f"Session ID: {st.session_state.session_id}")
 
 # Handle clear functionality
 if clear_button:
@@ -417,17 +621,27 @@ if user_question := st.chat_input("Type your question here:"):
                     docs = []
                 else:
                     vector_store = st.session_state.vector_store
-                    docs = vector_store.similarity_search(user_question, k=4)
+                    docs = vector_store.similarity_search(user_question, k=DocumentConfig.SIMILARITY_SEARCH_K)
+                    
+                    # Filter docs by active documents if feature enabled
+                    if FeatureFlags.ENABLE_DOCUMENT_FILTER and st.session_state.active_documents:
+                        docs = [doc for doc in docs if doc.metadata["source"] in st.session_state.active_documents]
+                    
                     context = "\n".join([doc.page_content for doc in docs])
                     sources = ", ".join(set([doc.metadata["source"] for doc in docs]))
                     logger.info(f"Retrieved {len(docs)} relevant chunks from sources: {sources}")
                 
+                # Track input tokens
+                if FeatureFlags.ENABLE_TOKEN_TRACKING:
+                    input_tokens = estimate_tokens(context + user_question)
+                    st.session_state.total_tokens['input'] += input_tokens
+                
                 llm = ChatGoogleGenerativeAI(
                     model=model_name,
-                    temperature=DEFAULT_TEMPERATURE,
-                    top_p=0.85,
-                    top_k=40,
-                    max_output_tokens=2048,
+                    temperature=st.session_state.temperature,  # Use dynamic temperature
+                    top_p=ModelConfig.TOP_P,
+                    top_k=ModelConfig.TOP_K,
+                    max_output_tokens=ModelConfig.MAX_OUTPUT_TOKENS,
                     google_api_key=api_key
                 )
                 
@@ -457,7 +671,7 @@ if user_question := st.chat_input("Type your question here:"):
 
                 formatted_chat_history = "\n".join([
                     f'{author}: {message}' 
-                    for author, message in st.session_state.chat_history[-10:]  # Last 10 messages
+                    for author, message in st.session_state.chat_history[-UIConfig.MAX_CHAT_HISTORY_DISPLAY:]
                 ])
 
                 response = chain.invoke({
@@ -467,6 +681,11 @@ if user_question := st.chat_input("Type your question here:"):
                     "question": user_question
                 })
                 
+                # Track output tokens
+                if FeatureFlags.ENABLE_TOKEN_TRACKING:
+                    output_tokens = estimate_tokens(response)
+                    st.session_state.total_tokens['output'] += output_tokens
+                
                 with st.chat_message("assistant"):
                     st.markdown(response)
                     
@@ -474,6 +693,19 @@ if user_question := st.chat_input("Type your question here:"):
                     if sources:
                         st.markdown(f'<div class="source-citation">📚 <strong>Sources:</strong> {sources}</div>', 
                                   unsafe_allow_html=True)
+                    
+                    # Add feedback buttons if feature enabled
+                    if FeatureFlags.ENABLE_FEEDBACK:
+                        response_idx = len(st.session_state.chat_history)
+                        col1, col2, col3 = st.columns([1, 1, 8])
+                        with col1:
+                            if st.button("👍", key=f"thumbs_up_{response_idx}"):
+                                st.session_state.feedback[response_idx] = "positive"
+                                st.success("Thanks for your feedback!")
+                        with col2:
+                            if st.button("👎", key=f"thumbs_down_{response_idx}"):
+                                st.session_state.feedback[response_idx] = "negative"
+                                st.info("Thanks for your feedback!")
                 
                 st.session_state.chat_history.append(("assistant", response))
                 logger.info(f"Response generated successfully using {model_name}")
