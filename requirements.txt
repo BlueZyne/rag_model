@@ -1,13 +1,26 @@
+# Web Framework
 streamlit==1.50.0
+
+# Google AI
 google-generativeai==0.8.5
+langchain-google-genai==2.0.10
+
+# PDF Processing
 pypdf==6.1.3
+
+# LangChain Core
 langchain==0.3.27
 langchain-community==0.3.31
 langchain-core==0.3.79
-langchain-google-genai==2.0.10
 langchain-text-splitters==0.3.11
+
+# Environment Variables
 python-dotenv==1.1.1
+
+# Vector Store
 faiss-cpu==1.12.0
+
+# Embeddings and ML
 sentence-transformers==5.1.2
 torch==2.9.0
 transformers==4.57.1

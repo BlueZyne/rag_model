@@ -1,4 +1,39 @@
+# Environment variables
 .env
+.env.local
+
+# Virtual environment
 third/
+venv/
+env/
+
+# IDE
 .vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Models and data
 models/
+vector_stores/
+
+# Logs
+*.log
+logs/
+
+# Streamlit
+.streamlit/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*~

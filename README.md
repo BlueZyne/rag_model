@@ -4,33 +4,50 @@
 
 **[View the live application](https://ireadpdf.streamlit.app/)**
 
-This is a Streamlit application that allows you to chat with your PDF documents using Google's Gemini models. You can upload a PDF, and the application will create a vector store of the document's content. You can then ask questions about the document, and the application will use a Gemini model to generate answers based on the document's content.
+This is a production-ready Streamlit application that allows you to chat with your PDF documents using Google's Gemini models. Upload PDFs, and the application creates a vector store of the document's content. Ask questions, and the application uses Gemini AI to generate accurate answers based on your documents.
 
 ## Features ✨
 
-*   **Chat with your PDF:** Ask questions about your PDF documents in a conversational way. The application uses a Retrieval Augmented Generation (RAG) architecture to provide answers based on the content of your PDF.
-*   **Google Gemini:** Uses a Gemini model from Google for high-quality, conversational answers.
-*   **Chat History:** Remembers your previous questions and answers, allowing for a natural, back-and-forth conversation with your document.
-*   **Local Embeddings:** Uses a local Hugging Face embedding model (`all-MiniLM-L6-v2`) to create the vector store. This ensures that the application remains functional and performant.
-*   **Easy to use:** Simple and intuitive user interface built with Streamlit, allowing you to upload a PDF and start chatting in seconds.
+### Core Features
+*   **Chat with your PDF:** Ask questions about your PDF documents in a conversational way using Retrieval Augmented Generation (RAG) architecture.
+*   **Google Gemini AI:** Uses Gemini 2.0 Flash and Thinking models for high-quality, intelligent answers with automatic complexity-based routing.
+*   **Multi-Document Support:** Upload and chat with multiple PDF documents simultaneously.
+*   **Chat History:** Maintains conversation context for natural, back-and-forth dialogue.
+
+### Production Features
+*   **📊 Document Statistics:** View page count, text chunks, and character count for each uploaded document.
+*   **💾 Export Chat History:** Download your conversations as markdown files for future reference.
+*   **📚 Source Citations:** See which documents were used to answer your questions.
+*   **⚡ File Validation:** Automatic file size validation (max 50MB) to prevent crashes.
+*   **🔍 Smart Model Routing:** Automatically uses Flash model for simple questions and Pro model for complex queries.
+*   **📝 Comprehensive Logging:** Full logging system for debugging and monitoring.
+*   **🎨 Enhanced UI:** Beautiful gradient design with statistics cards and better user experience.
+*   **⚠️ Better Error Handling:** Detailed, helpful error messages with troubleshooting suggestions.
+
+### Technical Features
+*   **Local Embeddings:** Uses Hugging Face `all-MiniLM-L6-v2` model for efficient vector embeddings.
+*   **FAISS Vector Store:** Fast similarity search for retrieving relevant document chunks.
+*   **Robust Text Processing:** Handles encoding errors and extracts text from complex PDFs.
 
 ## Architecture 🏗️
 
-This application follows a Retrieval Augmented Generation (RAG) architecture. Here's how it works:
+This application follows a Retrieval Augmented Generation (RAG) architecture:
 
-1.  **PDF Processing:** When you upload a PDF, the application uses the `PyPDF` library to extract the text from the document.
-2.  **Text Chunking:** The extracted text is then split into smaller chunks using `RecursiveCharacterTextSplitter` from LangChain. This is done to ensure that the text is small enough to be processed by the embedding model.
-3.  **Embedding and Vector Store:** The text chunks are then converted into numerical representations (embeddings) using the Hugging Face `all-MiniLM-L6-v2` model. These embeddings are then stored in a `FAISS` vector store. FAISS (Facebook AI Similarity Search) is a library that allows for efficient similarity search on a large collection of vectors.
-4.  **Question Answering:** When you ask a question, the application first performs a similarity search on the vector store to find the most relevant text chunks from the PDF. These text chunks are then passed to the Gemini model along with your question and the chat history. The model then uses this information to generate a relevant and accurate answer.
+1.  **PDF Processing:** Extracts text from uploaded PDFs using `PyPDF` library with error handling.
+2.  **Text Chunking:** Splits text into 1000-character chunks with 200-character overlap using `RecursiveCharacterTextSplitter`.
+3.  **Embedding and Vector Store:** Converts chunks to embeddings using `all-MiniLM-L6-v2` and stores in FAISS vector store with metadata.
+4.  **Question Classification:** Analyzes question complexity to route to appropriate Gemini model.
+5.  **Question Answering:** Performs similarity search, retrieves relevant chunks, and generates answers using Gemini with chat history context.
 
-## Technology Choices 🛠️
+## Technology Stack 🛠️
 
-*   **Streamlit:** We chose Streamlit for its simplicity and ease of use. It allows us to create a beautiful and interactive web application with just a few lines of Python code.
-*   **LangChain:** LangChain is a powerful framework for building applications with large language models (LLMs). We use it for text splitting, creating prompts, and interacting with the Gemini model.
-*   **Google Gemini:** Gemini is a family of powerful and versatile LLMs from Google. They are great for conversational AI and provide high-quality answers.
-*   **FAISS:** FAISS is a library for efficient similarity search. It's perfect for finding the most relevant text chunks from the PDF when you ask a question.
-*   **Hugging Face Embeddings:** We use Hugging Face embeddings to create the vector store. The `all-MiniLM-L6-v2` model is a small and efficient model that provides good performance.
-*   **PyPDF:** `PyPDF` is a simple and effective library for extracting text from PDF documents.
+*   **Streamlit:** Interactive web application framework
+*   **LangChain:** Framework for building LLM applications (text splitting, prompts, chains)
+*   **Google Gemini 2.0:** Advanced AI models (Flash for speed, Thinking for complex reasoning)
+*   **FAISS:** Efficient similarity search library
+*   **Hugging Face Embeddings:** `all-MiniLM-L6-v2` for text embeddings
+*   **PyPDF:** PDF text extraction
+*   **Python Logging:** Production-grade logging system
 
 ## Installation and Setup ⚙️
 
@@ -55,8 +72,9 @@ This application follows a Retrieval Augmented Generation (RAG) architecture. He
     *   Create a `.env` file in the root of the project.
     *   Add your Google API key to the `.env` file:
         ```
-        GOOGLE_API_KEY="YOUR_API_KEY"
+        GOOGLE_API_KEY=your_api_key_here
         ```
+    *   Get your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 ## Usage 🚀
 
@@ -66,9 +84,73 @@ This application follows a Retrieval Augmented Generation (RAG) architecture. He
     ```
 
 2.  **Upload your PDF:**
-    *   Open the application in your browser.
-    *   Use the file uploader in the sidebar to upload your PDF document.
-    *   Click the "Process" button to create the vector store.
+    *   Open the application in your browser (usually `http://localhost:8501`)
+    *   Use the file uploader in the sidebar to upload PDF documents (max 50MB each)
+    *   Documents are automatically processed when uploaded
+    *   View statistics for each document in the sidebar
 
 3.  **Chat with your PDF:**
-    *   Once the document is processed, you can start asking questions in the chat input.
+    *   Once documents are processed, ask questions in the chat input
+    *   The AI will automatically choose the best model based on question complexity
+    *   View source citations to see which documents were referenced
+
+4.  **Export your conversation:**
+    *   Click "💾 Export Chat" in the sidebar
+    *   Download your chat history as a markdown file
+
+## Troubleshooting 🔧
+
+### Common Issues
+
+**"GOOGLE_API_KEY not found"**
+- Ensure you've created a `.env` file in the project root
+- Verify the API key is correctly formatted: `GOOGLE_API_KEY=your_key_here`
+- Check that the `.env` file is in the same directory as `app.py`
+
+**"No text could be extracted from the PDF"**
+- The PDF might be scanned/image-based. Try using OCR software first
+- The PDF might be corrupted. Try opening it in a PDF reader
+- The PDF might be password-protected. Remove protection first
+
+**"API quota exceeded"**
+- You've hit your Google AI API rate limit
+- Wait a few minutes and try again
+- Check your quota at [Google AI Studio](https://makersuite.google.com/)
+
+**"File size exceeds maximum"**
+- Maximum file size is 50MB per PDF
+- Try compressing the PDF or splitting it into smaller files
+
+**Memory errors**
+- Try uploading fewer documents at once
+- Restart the application to clear memory
+- Close other applications to free up RAM
+
+## Production Deployment 🚀
+
+This application is production-ready with:
+- Comprehensive error handling and logging
+- File validation and size limits
+- Rate limiting protection
+- Efficient memory management
+- User-friendly error messages
+
+For deployment to Streamlit Cloud, Heroku, or other platforms:
+1. Ensure `.env` is in `.gitignore` (it is by default)
+2. Set `GOOGLE_API_KEY` as an environment variable in your deployment platform
+3. The app will automatically use environment variables if `.env` is not found
+
+## Contributing 🤝
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License 📄
+
+This project is open source and available under the MIT License.
+
+## Acknowledgments 🙏
+
+- Google for the Gemini AI models
+- Streamlit for the amazing web framework
+- LangChain for the RAG framework
+- The open-source community for all the amazing tools

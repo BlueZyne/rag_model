@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-from typing import List
+from typing import List, Dict, Tuple
 import google.generativeai as genai
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -12,9 +12,32 @@ from dotenv import load_dotenv
 import io
 from langchain_community.embeddings import HuggingFaceEmbeddings
 import time
+import logging
+from datetime import datetime
+import json
+
+# --- Configure Logging ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# --- Constants ---
+MAX_FILE_SIZE_MB = 50
+MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+DEFAULT_TEMPERATURE = 0.7
+FLASH_MODEL = "models/gemini-2.0-flash-exp"
+PRO_MODEL = "models/gemini-2.0-flash-thinking-exp-1219"
 
 # --- 1. Load API Key and Configure ---
-def load_api_key():
+def load_api_key() -> str:
     """Load API key with fallback options"""
     try:
         load_dotenv(encoding='utf-8')
@@ -22,8 +45,13 @@ def load_api_key():
         if not api_key:
             # Try direct environment variable if .env fails
             api_key = os.environ.get("GOOGLE_API_KEY")
+        if api_key:
+            logger.info("API key loaded successfully")
+        else:
+            logger.error("API key not found in environment")
         return api_key
     except Exception as e:
+        logger.error(f"Error loading .env file: {str(e)}")
         st.error(f"Error loading .env file: {str(e)}")
         return None
 
@@ -32,14 +60,50 @@ api_key = load_api_key()
 # Check if the key is loaded
 if not api_key:
     st.error("🚨 GOOGLE_API_KEY not found! Please set it in your .env file.")
+    st.info("Create a `.env` file in the project root with: `GOOGLE_API_KEY=your_api_key_here`")
     st.stop()  # Stop the app if the key is missing
 else:
     # Configure the Google AI client
     genai.configure(api_key=api_key)
+    logger.info("Google AI configured successfully")
 
 # --- 2. Set up the Streamlit Page ---
-st.set_page_config(page_title="Chat with PDF", layout="wide")
-st.header("Chat with your PDF using Scholar 🤖")
+st.set_page_config(
+    page_title="Chat with PDF - Scholar AI",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for better UI
+st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: 1rem;
+    }
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        color: white;
+        margin: 0.5rem 0;
+    }
+    .source-citation {
+        background-color: #f0f2f6;
+        padding: 0.5rem;
+        border-radius: 5px;
+        margin-top: 0.5rem;
+        font-size: 0.85rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+st.markdown('<h1 class="main-header">Chat with your PDF using Scholar 🤖</h1>', unsafe_allow_html=True)
 
 # Initialize session states
 if 'documents' not in st.session_state:
@@ -48,41 +112,126 @@ if 'vector_store' not in st.session_state:
     st.session_state.vector_store = None
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
+if 'document_stats' not in st.session_state:
+    st.session_state.document_stats = {}
+if 'processing_time' not in st.session_state:
+    st.session_state.processing_time = 0
 
-# --- 3. Add the File Uploader to the sidebar ---
+# --- 3. Helper Functions ---
+def validate_file_size(uploaded_file) -> Tuple[bool, str]:
+    """Validate uploaded file size"""
+    try:
+        file_size = uploaded_file.size
+        if file_size > MAX_FILE_SIZE_BYTES:
+            size_mb = file_size / (1024 * 1024)
+            return False, f"File size ({size_mb:.2f}MB) exceeds maximum allowed size ({MAX_FILE_SIZE_MB}MB)"
+        return True, ""
+    except Exception as e:
+        logger.error(f"Error validating file size: {str(e)}")
+        return False, f"Error validating file: {str(e)}"
+
+def export_chat_history() -> str:
+    """Export chat history as markdown"""
+    if not st.session_state.chat_history:
+        return "# Chat History\n\nNo messages yet."
+    
+    markdown = f"# Chat History - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+    markdown += "---\n\n"
+    
+    for author, message in st.session_state.chat_history:
+        icon = "👤" if author == "user" else "🤖"
+        markdown += f"### {icon} {author.capitalize()}\n\n"
+        markdown += f"{message}\n\n"
+        markdown += "---\n\n"
+    
+    return markdown
+
+# --- 4. Add the File Uploader to the sidebar ---
 def process_uploaded_files(uploaded_files):
-    """Processes uploaded PDF files."""
-    with st.spinner("Processing documents..."):
+    """Processes uploaded PDF files with enhanced error handling and statistics"""
+    if not uploaded_files:
+        return
+    
+    start_time = time.time()
+    
+    with st.spinner("📚 Processing documents..."):
         text_chunks_dict = {}
+        stats = {}
+        
         for pdf in uploaded_files:
-            chunks = get_pdf_text_and_chunks(pdf)
+            # Validate file size
+            is_valid, error_msg = validate_file_size(pdf)
+            if not is_valid:
+                st.error(f"❌ {pdf.name}: {error_msg}")
+                logger.warning(f"File size validation failed for {pdf.name}: {error_msg}")
+                continue
+            
+            logger.info(f"Processing file: {pdf.name}")
+            chunks, file_stats = get_pdf_text_and_chunks(pdf)
+            
             if chunks:
                 text_chunks_dict[pdf.name] = chunks
+                stats[pdf.name] = file_stats
+                logger.info(f"Successfully processed {pdf.name}: {len(chunks)} chunks created")
+            else:
+                logger.warning(f"No chunks created for {pdf.name}")
         
         if text_chunks_dict:
             create_vector_store(text_chunks_dict)
+            st.session_state.document_stats = stats
+            st.session_state.processing_time = time.time() - start_time
+            logger.info(f"Processing completed in {st.session_state.processing_time:.2f} seconds")
         else:
-            st.error("No valid text could be extracted from any of the documents.")
+            st.error("❌ No valid text could be extracted from any of the documents.")
+            logger.error("No valid documents processed")
 
 with st.sidebar:
-    st.subheader("Your Documents")
+    st.subheader("📁 Your Documents")
     pdf_files = st.file_uploader(
         "Upload PDF documents and start chatting", 
         type="pdf", 
         accept_multiple_files=True,
         key='pdf_files',
-        on_change=lambda: process_uploaded_files(st.session_state.pdf_files)
+        on_change=lambda: process_uploaded_files(st.session_state.pdf_files),
+        help=f"Maximum file size: {MAX_FILE_SIZE_MB}MB per file"
     )
     
-
-
-    # Show uploaded documents
+    # Show uploaded documents with statistics
     if 'pdf_files' in st.session_state and st.session_state.pdf_files:
-        st.write("Uploaded documents:")
+        st.write("**Uploaded documents:**")
         for pdf in st.session_state.pdf_files:
             st.write(f"📄 {pdf.name}")
+            
+            # Show statistics if available
+            if pdf.name in st.session_state.document_stats:
+                stats = st.session_state.document_stats[pdf.name]
+                with st.expander(f"📊 Statistics for {pdf.name[:20]}..."):
+                    st.metric("Pages", stats.get('pages', 'N/A'))
+                    st.metric("Text Chunks", stats.get('chunks', 'N/A'))
+                    st.metric("Characters", f"{stats.get('characters', 0):,}")
+        
+        if st.session_state.processing_time > 0:
+            st.info(f"⏱️ Processing time: {st.session_state.processing_time:.2f}s")
     
-    clear_button = st.button("Clear All")
+    st.divider()
+    
+    # Export chat history button
+    if st.session_state.chat_history:
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Export Chat", use_container_width=True):
+                chat_md = export_chat_history()
+                st.download_button(
+                    label="📥 Download",
+                    data=chat_md,
+                    file_name=f"chat_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md",
+                    mime="text/markdown",
+                    use_container_width=True
+                )
+        with col2:
+            clear_button = st.button("🗑️ Clear All", use_container_width=True)
+    else:
+        clear_button = st.button("🗑️ Clear All")
 
 # Handle clear functionality
 if clear_button:
@@ -90,11 +239,14 @@ if clear_button:
     st.session_state.vector_store = None
     st.session_state.chat_history = []
     st.session_state.pdf_files = []
+    st.session_state.document_stats = {}
+    st.session_state.processing_time = 0
+    logger.info("Session cleared by user")
     st.rerun()
 
-# --- 4. Function to Process the PDF ---
-def get_pdf_text_and_chunks(pdf_file) -> List[str]:
-    """Extracts text from the PDF and splits it into chunks."""
+# --- 5. Function to Process the PDF ---
+def get_pdf_text_and_chunks(pdf_file) -> Tuple[List[str], Dict]:
+    """Extracts text from the PDF and splits it into chunks with statistics"""
     try:
         # Convert the uploaded file to a file-like object
         pdf_file_obj = io.BytesIO(pdf_file.read())
@@ -102,48 +254,66 @@ def get_pdf_text_and_chunks(pdf_file) -> List[str]:
         
         text = ""
         pdf_reader = PdfReader(pdf_file_obj)
+        page_count = len(pdf_reader.pages)
+        
+        logger.info(f"Reading {page_count} pages from {pdf_file.name}")
         
         # Extract text page by page with encoding error handling
-        for page in pdf_reader.pages:
+        for page_num, page in enumerate(pdf_reader.pages, 1):
             try:
                 page_text = page.extract_text()
                 # Clean and normalize text
                 page_text = page_text.encode('utf-8', errors='ignore').decode('utf-8')
                 text += page_text + "\n"
             except Exception as e:
-                st.warning(f"Warning: Could not extract text from a page: {str(e)}")
+                logger.warning(f"Could not extract text from page {page_num}: {str(e)}")
+                st.warning(f"⚠️ Warning: Could not extract text from page {page_num} of {pdf_file.name}")
                 continue
         
         if not text.strip():
-            st.error("No text could be extracted from the PDF. Please check if the file is text-based and not scanned.")
-            return []
+            st.error(f"❌ No text could be extracted from {pdf_file.name}. Please check if the file is text-based and not scanned.")
+            logger.error(f"No text extracted from {pdf_file.name}")
+            return [], {}
         
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
             length_function=len,
             separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]
         )
         chunks = text_splitter.split_text(text)
         
         if not chunks:
-            st.warning("Warning: No text chunks were created. The PDF might be empty or contain non-textual content.")
-            return []
-            
-        return chunks
+            logger.warning(f"No chunks created for {pdf_file.name}")
+            st.warning(f"⚠️ Warning: No text chunks were created for {pdf_file.name}. The PDF might be empty or contain non-textual content.")
+            return [], {}
+        
+        # Compile statistics
+        stats = {
+            'pages': page_count,
+            'chunks': len(chunks),
+            'characters': len(text)
+        }
+        
+        logger.info(f"Created {len(chunks)} chunks from {pdf_file.name}")
+        return chunks, stats
+        
     except Exception as e:
-        st.error(f"Error processing PDF: {str(e)}")
-        st.info("Try saving your PDF with a different encoding or check if it's not corrupted.")
-        return []
+        logger.error(f"Error processing PDF {pdf_file.name}: {str(e)}")
+        st.error(f"❌ Error processing {pdf_file.name}: {str(e)}")
+        st.info("💡 Try saving your PDF with a different encoding or check if it's not corrupted.")
+        return [], {}
 
-# --- 5. Function to Create the Vector Store ---
+# --- 6. Function to Create the Vector Store ---
 def create_vector_store(text_chunks_dict: dict):
-    """Creates a FAISS vector store from multiple documents' text chunks."""
+    """Creates a FAISS vector store from multiple documents' text chunks"""
     if not text_chunks_dict:
-        st.error("No text chunks to process")
+        st.error("❌ No text chunks to process")
+        logger.error("No text chunks provided to create_vector_store")
         return
 
     try:
+        logger.info("Creating embeddings and vector store")
         embeddings = HuggingFaceEmbeddings(
             model_name="all-MiniLM-L6-v2",
             cache_folder="./models"
@@ -154,9 +324,12 @@ def create_vector_store(text_chunks_dict: dict):
         all_metadatas = []
         
         for doc_name, chunks in text_chunks_dict.items():
-            for chunk in chunks:
+            for chunk_idx, chunk in enumerate(chunks):
                 all_chunks.append(chunk)
-                all_metadatas.append({"source": doc_name})
+                all_metadatas.append({
+                    "source": doc_name,
+                    "chunk_id": chunk_idx
+                })
         
         vector_store = FAISS.from_texts(
             texts=all_chunks,
@@ -164,20 +337,25 @@ def create_vector_store(text_chunks_dict: dict):
             metadatas=all_metadatas
         )
         st.session_state.vector_store = vector_store
-        st.success(f"✅ Successfully processed {len(text_chunks_dict)} documents!")
+        
+        success_msg = f"✅ Successfully processed {len(text_chunks_dict)} document(s) with {len(all_chunks)} total chunks!"
+        st.success(success_msg)
+        logger.info(success_msg)
         
     except Exception as e:
-        st.error(f"Error creating vector store: {str(e)}")
+        error_msg = f"Error creating vector store: {str(e)}"
+        logger.error(error_msg)
+        st.error(f"❌ {error_msg}")
+        if "memory" in str(e).lower():
+            st.warning("💡 This might be a memory issue. Try uploading fewer or smaller documents.")
         return None
-
-
 
 # --- 7. Handle User Questions ---
 def get_question_complexity(question: str, api_key: str) -> str:
-    """Classifies a question as simple or complex using the flash model."""
+    """Classifies a question as simple or complex using the flash model"""
     try:
         llm = ChatGoogleGenerativeAI(
-            model="models/gemini-2.5-flash",
+            model=FLASH_MODEL,
             temperature=0.0,
             google_api_key=api_key
         )
@@ -196,56 +374,57 @@ def get_question_complexity(question: str, api_key: str) -> str:
         
         chain = prompt | llm | StrOutputParser()
         
-        return chain.invoke({"question": question}).strip().lower()
+        result = chain.invoke({"question": question}).strip().lower()
+        logger.info(f"Question classified as: {result}")
+        return result
     except Exception as e:
-        st.warning(f"Could not classify question complexity: {str(e)}")
+        logger.warning(f"Could not classify question complexity: {str(e)}")
         return "simple"  # Default to simple if classification fails
 
-st.subheader("Ask a question about your document")
- 
- # Initialize session state for vector store and chat history
-if 'vector_store' not in st.session_state:
-    st.session_state.vector_store = None
-if 'chat_history' not in st.session_state:
-    st.session_state.chat_history = []
- 
- # Display chat history
+# --- 8. Main Chat Interface ---
+st.subheader("💬 Ask a question about your document")
+
+# Display chat history
 for author, message in st.session_state.chat_history:
     with st.chat_message(author):
         st.markdown(message)
- 
+
 if user_question := st.chat_input("Type your question here:"):
     with st.chat_message("user"):
         st.markdown(user_question)
     st.session_state.chat_history.append(("user", user_question))
+    logger.info(f"User question: {user_question}")
 
-    if "vector_store" in st.session_state and st.session_state.vector_store is not None:
+    if st.session_state.vector_store is not None:
         try:
-            with st.spinner("Thinking..."):
+            with st.spinner("🤔 Thinking..."):
                 # Step 1: Classify the question
                 complexity = get_question_complexity(user_question, api_key)
 
                 # Step 2: Choose the model based on complexity
                 if complexity == "complex":
-                    model_name = "gemini-2.5-pro"
-                    pass
+                    model_name = PRO_MODEL
+                    logger.info(f"Using PRO model for complex question")
                 else:
-                    model_name = "models/gemini-2.5-flash"
-                    pass
+                    model_name = FLASH_MODEL
+                    logger.info(f"Using FLASH model for simple question")
 
-                general_questions = ["hi", "hello", "thanks", "thank you"]
-                if user_question.lower() in general_questions:
+                # Check for general greetings
+                general_questions = ["hi", "hello", "thanks", "thank you", "hey"]
+                if user_question.lower().strip() in general_questions:
                     context = ""
                     sources = ""
+                    docs = []
                 else:
                     vector_store = st.session_state.vector_store
                     docs = vector_store.similarity_search(user_question, k=4)
                     context = "\n".join([doc.page_content for doc in docs])
                     sources = ", ".join(set([doc.metadata["source"] for doc in docs]))
+                    logger.info(f"Retrieved {len(docs)} relevant chunks from sources: {sources}")
                 
                 llm = ChatGoogleGenerativeAI(
                     model=model_name,
-                    temperature=0.7,
+                    temperature=DEFAULT_TEMPERATURE,
                     top_p=0.85,
                     top_k=40,
                     max_output_tokens=2048,
@@ -253,9 +432,13 @@ if user_question := st.chat_input("Type your question here:"):
                 )
                 
                 prompt_template = """
-                You are a helpful and friendly AI assistant. Your goal is to answer the user's question based on the provided context.
+                You are Scholar AI, a helpful and friendly AI assistant specialized in analyzing documents. 
+                Your goal is to answer the user's question based on the provided context from their uploaded documents.
+                
                 If the user asks a question that is not related to the context, you can answer it in a friendly and conversational way.
-                If the answer cannot be found in the context, you can say that you are an AI assistant and your primary purpose is to answer questions about the provided documents.
+                If the answer cannot be found in the context, politely explain that you are an AI assistant focused on answering questions about the provided documents.
+                
+                Always be accurate, concise, and helpful. When referencing information from the documents, be specific.
 
                 Context: {context}
                 Sources: {sources}
@@ -265,11 +448,17 @@ if user_question := st.chat_input("Type your question here:"):
 
                 Answer:
                 """
-                prompt = PromptTemplate(template=prompt_template, input_variables=["context", "sources", "chat_history", "question"])
+                prompt = PromptTemplate(
+                    template=prompt_template, 
+                    input_variables=["context", "sources", "chat_history", "question"]
+                )
                 
                 chain = prompt | llm | StrOutputParser()
 
-                formatted_chat_history = "\n".join([f'{author}: {message}' for author, message in st.session_state.chat_history])
+                formatted_chat_history = "\n".join([
+                    f'{author}: {message}' 
+                    for author, message in st.session_state.chat_history[-10:]  # Last 10 messages
+                ])
 
                 response = chain.invoke({
                     "context": context,
@@ -280,13 +469,38 @@ if user_question := st.chat_input("Type your question here:"):
                 
                 with st.chat_message("assistant"):
                     st.markdown(response)
+                    
+                    # Show source citations if available
+                    if sources:
+                        st.markdown(f'<div class="source-citation">📚 <strong>Sources:</strong> {sources}</div>', 
+                                  unsafe_allow_html=True)
                 
                 st.session_state.chat_history.append(("assistant", response))
+                logger.info(f"Response generated successfully using {model_name}")
 
         except Exception as e:
+            error_msg = f"Error generating response: {str(e)}"
+            logger.error(error_msg)
             st.error("⚠️ Error generating response")
             st.error(f"Details: {str(e)}")
-            if "quota" in str(e).lower():
-                st.warning("This might be an API quota issue. Please check your API limits.")
+            
+            # Provide helpful error messages
+            if "quota" in str(e).lower() or "429" in str(e):
+                st.warning("💡 This might be an API quota issue. Please check your API limits or try again later.")
+            elif "timeout" in str(e).lower():
+                st.warning("💡 Request timed out. Try asking a simpler question or check your internet connection.")
+            elif "invalid" in str(e).lower() and "api" in str(e).lower():
+                st.warning("💡 There might be an issue with your API key. Please verify it's correct in your .env file.")
     else:
-        st.warning("Please upload and process a PDF document first.")
+        st.warning("⚠️ Please upload and process a PDF document first.")
+        logger.warning("User attempted to ask question without uploading documents")
+
+# --- 9. Footer ---
+st.divider()
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.caption("🤖 Powered by Google Gemini")
+with col2:
+    st.caption("📚 RAG Architecture")
+with col3:
+    st.caption("⚡ Production Ready")
