@@ -27,8 +27,6 @@ This is a production-ready Streamlit application that allows you to chat with yo
 ### New Advanced Features
 *   **🌡️ Temperature Control:** Adjust AI creativity and randomness with an easy-to-use slider (0.0-1.0).
 *   **📊 Token Usage Tracking:** Real-time tracking of API token usage with cost estimation.
-*   **👍👎 Response Feedback:** Rate AI responses with thumbs up/down to track quality.
-*   **📝 Conversation Summary:** Generate AI-powered summaries of your chat sessions.
 *   **🔍 Document Filtering:** Select which documents to include in your searches (multi-document mode).
 *   **⚙️ Configurable Settings:** Centralized configuration file for easy customization.
 *   **🔒 Enhanced Security:** Comprehensive security policies and best practices.
@@ -113,20 +111,15 @@ This application follows a Retrieval Augmented Generation (RAG) architecture:
     *   Once documents are processed, ask questions in the chat input
     *   The AI will automatically choose the best model based on question complexity
     *   View source citations to see which documents were referenced
-    *   Rate responses with 👍 or 👎 to provide feedback
 
 6.  **Monitor Usage:**
     *   View real-time token usage and estimated costs in the sidebar
     *   Track your API consumption across the session
 
-7.  **Generate Conversation Summary:**
-    *   Click "📝 Generate Summary" to get an AI-powered summary of your chat
-    *   View key topics, questions, and insights from your conversation
-
-8.  **Export your conversation:**
+7.  **Export your conversation:**
     *   Click "💾 Export Chat" in the sidebar
     *   Download your chat history as a markdown file with metadata
-    *   Includes session ID, token usage, costs, and feedback ratings
+    *   Includes session ID, token usage, and costs
 
 ## Troubleshooting 🔧
 

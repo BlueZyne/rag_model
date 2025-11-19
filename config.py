@@ -48,13 +48,13 @@ class UIConfig:
 # --- Feature Flags ---
 class FeatureFlags:
     """Enable/disable features"""
-    ENABLE_FEEDBACK = True
-    ENABLE_TOKEN_TRACKING = True
-    ENABLE_TEMPERATURE_CONTROL = True
-    ENABLE_CONVERSATION_SUMMARY = True
-    ENABLE_DOCUMENT_FILTER = True
-    ENABLE_STREAMING = True
-    ENABLE_EXPORT = True
+    ENABLE_FEEDBACK = False  # Disabled - doesn't improve model, not needed for clients
+    ENABLE_TOKEN_TRACKING = True  # Keep - important for cost monitoring
+    ENABLE_TEMPERATURE_CONTROL = True  # Keep - useful for adjusting AI responses
+    ENABLE_CONVERSATION_SUMMARY = False  # Disabled - not essential for clients
+    ENABLE_DOCUMENT_FILTER = True  # Keep - useful for multi-document searches
+    ENABLE_STREAMING = True  # Keep - better UX
+    ENABLE_EXPORT = True  # Keep - clients may want to save conversations
 
 # --- Logging Configuration ---
 class LogConfig:

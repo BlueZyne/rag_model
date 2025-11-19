@@ -54,10 +54,10 @@ except ImportError:
         MAX_CHAT_HISTORY_DISPLAY = 10
     
     class FeatureFlags:
-        ENABLE_FEEDBACK = True
+        ENABLE_FEEDBACK = False  # Removed - doesn't improve model
         ENABLE_TOKEN_TRACKING = True
         ENABLE_TEMPERATURE_CONTROL = True
-        ENABLE_CONVERSATION_SUMMARY = True
+        ENABLE_CONVERSATION_SUMMARY = False  # Removed - not essential for clients
         ENABLE_DOCUMENT_FILTER = True
         ENABLE_STREAMING = True
     
